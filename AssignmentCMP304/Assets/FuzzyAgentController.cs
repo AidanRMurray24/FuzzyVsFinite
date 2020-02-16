@@ -8,17 +8,65 @@ using FLS.MembershipFunctions;
 
 public class FuzzyAgentController : MonoBehaviour
 {
+    // Editor accessable variables
     [SerializeField] private int maxHealth = 100;
     [SerializeField] Transform target = null;
     [SerializeField] private HealthBar healthBar = null;
     [SerializeField] private Transform healthBarPos = null;
-    private float distanceToTarget = 0f;
-    private int currentHealth = 0;
+
+    // Linguistic variables
+    private LinguisticVariable distToTarget = new LinguisticVariable("distToTarget");
+    private LinguisticVariable health = new LinguisticVariable("health");
+    private LinguisticVariable targetsHealth = new LinguisticVariable("targetsHealth");
+    private LinguisticVariable actionToTake = new LinguisticVariable("actionToTake");
+
+    // Membership functions
+    struct DistToTargetMF
+    {
+        public IMembershipFunction veryClose;
+        public IMembershipFunction close;
+        public IMembershipFunction far;
+        public IMembershipFunction veryFar;
+    }
+    private DistToTargetMF distToTargetMF;
+
+    struct HealthMF
+    {
+        public IMembershipFunction veryLow;
+        public IMembershipFunction low;
+        public IMembershipFunction moderate;
+        public IMembershipFunction high;
+        public IMembershipFunction veryHigh;
+    }
+    private HealthMF healthMF;
+
+    struct TargetsHealthMF
+    {
+        public IMembershipFunction veryLow;
+        public IMembershipFunction low;
+        public IMembershipFunction moderate;
+        public IMembershipFunction high;
+        public IMembershipFunction veryHigh;
+    }
+    private TargetsHealthMF targetsHealthMF;
+
+    struct ActionToTakeMF
+    {
+        public IMembershipFunction stabTarget;
+        public IMembershipFunction shootTarget;
+        public IMembershipFunction hideFromTarget;
+        public IMembershipFunction moveCloserToTarget;
+    }
+    private ActionToTakeMF actionToTakeMF;
+
+    // Components
     private NavMeshAgent agent = null;
     private Animator animator = null;
     private Rigidbody rb = null;
     private Camera mainCamera = null;
+    private IFuzzyEngine fuzzyEngine = null;
 
+    // State enum
     public enum FuzzyAgentState
     {
         IDLE = 0,
@@ -29,7 +77,15 @@ public class FuzzyAgentController : MonoBehaviour
         DEAD = 5,
         NUM_STATES = 6
     }
-    public FuzzyAgentState State { get; private set; } = FuzzyAgentState.MOVE_TO_TARGET;
+
+    // Public variables
+    public FuzzyAgentState State { get; private set; } = FuzzyAgentState.IDLE;
+    public int CurrentHealth { get { return currentHealth; } }
+
+    // Local variables
+    private int currentHealth = 0;
+    private int targetsCurrentHealth = 0;
+    private List<FuzzyRule> fuzzyRules = new List<FuzzyRule>();
 
     private void Awake()
     {
@@ -60,6 +116,13 @@ public class FuzzyAgentController : MonoBehaviour
         {
             Debug.Log("Camera missing on FiniteAgentController script, Object: " + this.gameObject);
         }
+
+        // Create a new instance of the FuzzyEngine
+        fuzzyEngine = new FuzzyEngineFactory().Default();
+        if (fuzzyEngine == null)
+        {
+            Debug.Log("FuzzyEngineFactory missing on FiniteAgentController script, Object: " + this.gameObject);
+        }
     }
 
     // Start is called before the first frame update
@@ -70,15 +133,64 @@ public class FuzzyAgentController : MonoBehaviour
 
         // Setup the health bar
         healthBar.SetMaxHealth(maxHealth);
+
+        // Setup the membership functions for the linguistic variables
+        {
+            if (distToTarget == null)
+            {
+                Debug.Log("distToTarget is null");
+            }
+
+            // Dist To Target
+            distToTargetMF.veryClose = distToTarget.MembershipFunctions.AddTrapezoid("veryClose", -50, -50, -5, -1);
+            distToTargetMF.close = distToTarget.MembershipFunctions.AddTrapezoid("close", -50, -50, -5, -1);
+            distToTargetMF.far = distToTarget.MembershipFunctions.AddTrapezoid("far", -50, -50, -5, -1);
+            distToTargetMF.veryFar = distToTarget.MembershipFunctions.AddTrapezoid("veryFar", -50, -50, -5, -1);
+
+            // Health
+            healthMF.veryLow = distToTarget.MembershipFunctions.AddTrapezoid("veryLow", -50, -50, -5, -1);
+            healthMF.low = distToTarget.MembershipFunctions.AddTrapezoid("low", -50, -50, -5, -1);
+            healthMF.moderate = distToTarget.MembershipFunctions.AddTrapezoid("moderate", -50, -50, -5, -1);
+            healthMF.high = distToTarget.MembershipFunctions.AddTrapezoid("high", -50, -50, -5, -1);
+            healthMF.veryHigh = distToTarget.MembershipFunctions.AddTrapezoid("veryHigh", -50, -50, -5, -1);
+
+            // Targets Health
+            targetsHealthMF.veryLow = distToTarget.MembershipFunctions.AddTrapezoid("veryLow", -50, -50, -5, -1);
+            targetsHealthMF.low = distToTarget.MembershipFunctions.AddTrapezoid("low", -50, -50, -5, -1);
+            targetsHealthMF.moderate = distToTarget.MembershipFunctions.AddTrapezoid("moderate", -50, -50, -5, -1);
+            targetsHealthMF.high = distToTarget.MembershipFunctions.AddTrapezoid("high", -50, -50, -5, -1);
+            targetsHealthMF.veryHigh = distToTarget.MembershipFunctions.AddTrapezoid("veryHigh", -50, -50, -5, -1);
+
+            // Action To Take
+            actionToTakeMF.stabTarget = distToTarget.MembershipFunctions.AddTrapezoid("stabTarget", -50, -50, -5, -1);
+            actionToTakeMF.shootTarget = distToTarget.MembershipFunctions.AddTrapezoid("shootTarget", -50, -50, -5, -1);
+            actionToTakeMF.hideFromTarget = distToTarget.MembershipFunctions.AddTrapezoid("hideFromTarget", -50, -50, -5, -1);
+            actionToTakeMF.moveCloserToTarget = distToTarget.MembershipFunctions.AddTrapezoid("moveCloserToTarget", -50, -50, -5, -1);
+        }
+
+        // Setup the rules for the fuzzy engine
+        {
+            fuzzyRules.Add(Rule.If(distToTarget.Is(distToTargetMF.veryClose)).Then(actionToTake.Is(actionToTakeMF.stabTarget)));
+            
+            // Add the rules to the engine
+            for (int i = 0; i < fuzzyRules.Count; i++)
+            {
+                fuzzyEngine.Rules.Add(fuzzyRules[i]);
+            }
+        }
+
     }
 
     // Update is called once per frame
     private void Update()
     {
-        if (Input.GetKeyDown(KeyCode.G))
+        // TESTING
         {
-            TakeDamage(10);
-        }
+            if (Input.GetKeyDown(KeyCode.G))
+            {
+                TakeDamage(10);
+            }
+        } 
 
         // Change what gets updated depending on the current state
         switch (State)
@@ -113,11 +225,22 @@ public class FuzzyAgentController : MonoBehaviour
         {
             healthBar.transform.position = mainCamera.WorldToScreenPoint(healthBarPos.position);
         }
+
+        // Get the targets current health
+        targetsCurrentHealth = target.GetComponent<FiniteAgentController>().CurrentHealth;
     }
 
     private void UpdateIdleState()
     {
+        // Set the linguistic variables input values
+        distToTarget.InputValue = (double)Vector3.Distance(transform.position, target.position);
+        health.InputValue = (double)currentHealth;
+        targetsHealth.InputValue = (double)targetsCurrentHealth;
 
+        // Get the results from the fuzzy engine
+        //double result = fuzzyEngine.Defuzzify(actionToTake);
+
+        //Debug.Log("Result: " + result);
     }
 
     private void UpdateStabState()

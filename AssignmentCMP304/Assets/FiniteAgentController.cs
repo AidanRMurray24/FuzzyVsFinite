@@ -5,17 +5,23 @@ using UnityEngine.AI;
 
 public class FiniteAgentController : MonoBehaviour
 {
+    // Editor accessable variables
     [SerializeField] private int maxHealth = 100;
     [SerializeField] Transform target = null;
     [SerializeField] private HealthBar healthBar = null;
     [SerializeField] private Transform healthBarPos = null;
-    private float distanceToTarget = 0f;
-    private int currentHealth = 0;
+    [SerializeField] private float distanceToStartStabbing = 0f;
+    [SerializeField] private float distanceToStartShooting = 0f;
+    [SerializeField] private float distanceToMoveTowardsTarget = 0f;
+    [SerializeField] private int healthValueToRunAwayAt = 0;
+
+    // Components
     private NavMeshAgent agent = null;
     private Animator animator = null;
     private Rigidbody rb = null;
     private Camera mainCamera = null;
 
+    // State enum
     public enum FiniteAgentState
     {
         IDLE = 0,
@@ -26,7 +32,16 @@ public class FiniteAgentController : MonoBehaviour
         DEAD = 5,
         NUM_STATES = 6
     }
-    public FiniteAgentState State { get; private set; } = FiniteAgentState.MOVE_TO_TARGET;
+
+    // Public variables
+    public FiniteAgentState State { get; private set; } = FiniteAgentState.IDLE;
+    public int CurrentHealth { get { return currentHealth; } }
+
+    // Local variables
+    private float distanceToTarget = 0f;
+    private int currentHealth = 0;
+    private int targetsHealth = 0;
+    private Vector3 targetsLastPosSeen = Vector3.zero;
 
     private void Awake()
     {
@@ -110,11 +125,21 @@ public class FiniteAgentController : MonoBehaviour
         {
             healthBar.transform.position = mainCamera.WorldToScreenPoint(healthBarPos.position);
         }
+
+        // Get the targets current health
+        targetsHealth = target.GetComponent<FuzzyAgentController>().CurrentHealth;
     }
 
     private void UpdateIdleState()
     {
+        // If the targets health is not zero then do something
+        if (targetsHealth > 0)
+        {
+            if (!CanSeeTarget())
+            {
 
+            }
+        }
     }
 
     private void UpdateStabState()
@@ -153,6 +178,27 @@ public class FiniteAgentController : MonoBehaviour
 
         // Update the health bar
         healthBar.SetHealth(currentHealth);
+    }
+
+    private bool CanSeeTarget()
+    {
+        RaycastHit hit;
+        if (Physics.Raycast(transform.position, target.position - transform.position, out hit))
+        {
+            if (hit.transform.CompareTag("FuzzyAgent"))
+            {
+                targetsLastPosSeen = target.position;
+                return true;
+            }
+            else
+            {
+                return false;
+            }
+        }
+        else
+        {
+            return false;
+        }
     }
 
 }
