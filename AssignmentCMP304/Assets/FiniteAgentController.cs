@@ -14,6 +14,7 @@ public class FiniteAgentController : MonoBehaviour
     [SerializeField] private float distanceToStartShooting = 0f;
     [SerializeField] private float distanceToMoveTowardsTarget = 0f;
     [SerializeField] private int healthValueToRunAwayAt = 0;
+    [SerializeField] private ParticleSystem muzzleFlashParticle = null;
 
     // Components
     private NavMeshAgent agent = null;
@@ -137,7 +138,7 @@ public class FiniteAgentController : MonoBehaviour
         {
             if (!CanSeeTarget())
             {
-
+                State = FiniteAgentState.MOVE_TO_TARGET;
             }
         }
     }
@@ -149,7 +150,7 @@ public class FiniteAgentController : MonoBehaviour
 
     private void UpdateShootTargetState()
     {
-
+        muzzleFlashParticle.Play();
     }
 
     private void UpdateHideState()
@@ -159,7 +160,29 @@ public class FiniteAgentController : MonoBehaviour
 
     private void UpdateMoveToTargetState()
     {
-        agent.SetDestination(target.position);
+        // Check the distance between the agent and the target
+        float distToTarget = Vector3.Distance(transform.position, target.position);
+        if (distToTarget >= distanceToMoveTowardsTarget)
+        {
+            // Set the destination to the position that the agent last seen the target
+            agent.SetDestination(targetsLastPosSeen);
+        }
+        else if (distToTarget >= distanceToStartShooting)
+        {
+            // Set the state to the shooting state
+            State = FiniteAgentState.SHOOT_TARGET;
+        }
+        else if (distToTarget >= distanceToStartShooting)
+        {
+            // Set the state to the stabbing state
+            State = FiniteAgentState.STAB;
+        }
+
+        // If the agent's health is low ignore the other conditions and hide
+        if (currentHealth <= healthValueToRunAwayAt)
+        {
+            State = FiniteAgentState.HIDE;
+        }
     }
 
     public void TakeDamage(int amount)

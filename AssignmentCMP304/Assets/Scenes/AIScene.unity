@@ -1058,6 +1058,11 @@ PrefabInstance:
       propertyPath: m_Name
       value: FuzzyAgent
       objectReference: {fileID: 0}
+    - target: {fileID: 4976509180155244088, guid: 6e607b13d04a1304d9e6de5e5995f429,
+        type: 3}
+      propertyPath: m_TagString
+      value: FuzzyAgent
+      objectReference: {fileID: 0}
     - target: {fileID: 4976509180155244089, guid: 6e607b13d04a1304d9e6de5e5995f429,
         type: 3}
       propertyPath: m_LocalPosition.x
@@ -1665,15 +1670,15 @@ PrefabInstance:
       propertyPath: healthBar
       value: 
       objectReference: {fileID: 51809908}
-    - target: {fileID: 6731277586862116747, guid: 79ca8e076fddbb446a01b170f506b688,
+    - target: {fileID: 628124634294575298, guid: 79ca8e076fddbb446a01b170f506b688,
         type: 3}
-      propertyPath: m_Speed
-      value: 6
+      propertyPath: lengthInSec
+      value: 0.2
       objectReference: {fileID: 0}
-    - target: {fileID: 6731277586862116747, guid: 79ca8e076fddbb446a01b170f506b688,
+    - target: {fileID: 628124634294575298, guid: 79ca8e076fddbb446a01b170f506b688,
         type: 3}
-      propertyPath: m_StoppingDistance
-      value: 4
+      propertyPath: InitialModule.startLifetime.scalar
+      value: 0.05
       objectReference: {fileID: 0}
     m_RemovedComponents: []
   m_SourcePrefab: {fileID: 100100000, guid: 79ca8e076fddbb446a01b170f506b688, type: 3}
