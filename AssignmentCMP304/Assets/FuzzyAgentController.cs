@@ -162,10 +162,10 @@ public class FuzzyAgentController : MonoBehaviour
             targetsHealthMF.veryHigh = distToTarget.MembershipFunctions.AddTrapezoid("veryHigh", -50, -50, -5, -1);
 
             // Action To Take
-            actionToTakeMF.stabTarget = distToTarget.MembershipFunctions.AddTrapezoid("stabTarget", -50, -50, -5, -1);
-            actionToTakeMF.shootTarget = distToTarget.MembershipFunctions.AddTrapezoid("shootTarget", -50, -50, -5, -1);
-            actionToTakeMF.hideFromTarget = distToTarget.MembershipFunctions.AddTrapezoid("hideFromTarget", -50, -50, -5, -1);
-            actionToTakeMF.moveCloserToTarget = distToTarget.MembershipFunctions.AddTrapezoid("moveCloserToTarget", -50, -50, -5, -1);
+            actionToTakeMF.stabTarget = distToTarget.MembershipFunctions.AddTriangle("stabTarget", -50, -50, -5);
+            actionToTakeMF.shootTarget = distToTarget.MembershipFunctions.AddTriangle("shootTarget", -50, -50, -5);
+            actionToTakeMF.hideFromTarget = distToTarget.MembershipFunctions.AddTriangle("hideFromTarget", -50, -50, -5);
+            actionToTakeMF.moveCloserToTarget = distToTarget.MembershipFunctions.AddTriangle("moveCloserToTarget", -50, -50, -5);
         }
 
         // Setup the rules for the fuzzy engine
@@ -232,15 +232,10 @@ public class FuzzyAgentController : MonoBehaviour
 
     private void UpdateIdleState()
     {
-        // Set the linguistic variables input values
-        distToTarget.InputValue = (double)Vector3.Distance(transform.position, target.position);
-        health.InputValue = (double)currentHealth;
-        targetsHealth.InputValue = (double)targetsCurrentHealth;
-
         // Get the results from the fuzzy engine
-        //double result = fuzzyEngine.Defuzzify(actionToTake);
+        double result = fuzzyEngine.Defuzzify(new { distToTarget = (double)Vector3.Distance(transform.position, target.position), health = (double)currentHealth, targetsHealth = (double)targetsCurrentHealth});
 
-        //Debug.Log("Result: " + result);
+        Debug.Log("Result: " + result);
     }
 
     private void UpdateStabState()
