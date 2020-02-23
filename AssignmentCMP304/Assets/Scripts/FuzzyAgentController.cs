@@ -21,6 +21,7 @@ public class FuzzyAgentController : MonoBehaviour
     private LinguisticVariable health = new LinguisticVariable("health");
     private LinguisticVariable targetsHealth = new LinguisticVariable("targetsHealth");
     private LinguisticVariable actionToTake = new LinguisticVariable("actionToTake");
+    private LinguisticVariable canSeeTarget = new LinguisticVariable("canSeeTarget");
 
     // Membership functions
     struct DistToTargetMF
@@ -55,6 +56,13 @@ public class FuzzyAgentController : MonoBehaviour
     }
     private ActionToTakeMF actionToTakeMF;
 
+    struct CanSeeTargetMF
+    {
+        public IMembershipFunction can;
+        public IMembershipFunction cant;
+    }
+    private CanSeeTargetMF canSeeTargetMF;
+
     // Components
     private NavMeshAgent agent = null;
     private Animator animator = null;
@@ -82,6 +90,7 @@ public class FuzzyAgentController : MonoBehaviour
     private int targetsCurrentHealth = 0;
     private List<FuzzyRule> fuzzyRules = new List<FuzzyRule>();
     private float elapsedMuzzleFlashTime = 0f;
+    private bool stateRulesSet = false;
 
     private void Awake()
     {
@@ -138,37 +147,29 @@ public class FuzzyAgentController : MonoBehaviour
             }
 
             // Dist To Target
-            distToTargetMF.close = distToTarget.MembershipFunctions.AddTrapezoid("close", -50, -50, -5, -1);
-            distToTargetMF.moderate = distToTarget.MembershipFunctions.AddTrapezoid("moderate", -50, -50, -5, -1);
-            distToTargetMF.far = distToTarget.MembershipFunctions.AddTrapezoid("far", -50, -50, -5, -1);
+            distToTargetMF.close = distToTarget.MembershipFunctions.AddTrapezoid("close", 0, 0, 3, 7);
+            distToTargetMF.moderate = distToTarget.MembershipFunctions.AddTrapezoid("moderate", 3, 7, 10, 16);
+            distToTargetMF.far = distToTarget.MembershipFunctions.AddTrapezoid("far", 12, 16, 20, 20);
 
             // Health
-            healthMF.low = distToTarget.MembershipFunctions.AddTrapezoid("low", -50, -50, -5, -1);
-            healthMF.moderate = distToTarget.MembershipFunctions.AddTrapezoid("moderate", -50, -50, -5, -1);
-            healthMF.high = distToTarget.MembershipFunctions.AddTrapezoid("high", -50, -50, -5, -1);
+            healthMF.low = health.MembershipFunctions.AddTrapezoid("low", 0, 0, 20, 47);
+            healthMF.moderate = health.MembershipFunctions.AddTrapezoid("moderate", 20, 40, 60, 80);
+            healthMF.high = health.MembershipFunctions.AddTrapezoid("high", 53, 80, 100, 100);
 
             // Targets Health
-            targetsHealthMF.low = distToTarget.MembershipFunctions.AddTrapezoid("low", -50, -50, -5, -1);
-            targetsHealthMF.moderate = distToTarget.MembershipFunctions.AddTrapezoid("moderate", -50, -50, -5, -1);
-            targetsHealthMF.high = distToTarget.MembershipFunctions.AddTrapezoid("high", -50, -50, -5, -1);
+            targetsHealthMF.low = targetsHealth.MembershipFunctions.AddTrapezoid("low", 0, 0, 20, 47);
+            targetsHealthMF.moderate = targetsHealth.MembershipFunctions.AddTrapezoid("moderate", 20, 40, 60, 80);
+            targetsHealthMF.high = targetsHealth.MembershipFunctions.AddTrapezoid("high", 53, 80, 100, 100);
+
+            // Can See Target
+            canSeeTargetMF.can = canSeeTarget.MembershipFunctions.AddTrapezoid("can", 0, 0, 1, 1);
+            canSeeTargetMF.cant = canSeeTarget.MembershipFunctions.AddTrapezoid("cant", 1, 1, 2, 2);
 
             // Action To Take
-            actionToTakeMF.shootTarget = distToTarget.MembershipFunctions.AddTriangle("shootTarget", -50, -50, -5);
-            actionToTakeMF.hideFromTarget = distToTarget.MembershipFunctions.AddTriangle("hideFromTarget", -50, -50, -5);
-            actionToTakeMF.moveCloserToTarget = distToTarget.MembershipFunctions.AddTriangle("moveCloserToTarget", -50, -50, -5);
+            actionToTakeMF.shootTarget = actionToTake.MembershipFunctions.AddTriangle("shootTarget", 0, 0.5f, 1);
+            actionToTakeMF.hideFromTarget = actionToTake.MembershipFunctions.AddTriangle("hideFromTarget", 1, 1.5f, 2);
+            actionToTakeMF.moveCloserToTarget = actionToTake.MembershipFunctions.AddTriangle("moveCloserToTarget", 2, 2.5f, 3);
         }
-
-        // Setup the rules for the fuzzy engine
-        {
-            fuzzyRules.Add(Rule.If(distToTarget.Is(distToTargetMF.close)).Then(actionToTake.Is(actionToTakeMF.shootTarget)));
-            
-            // Add the rules to the engine
-            for (int i = 0; i < fuzzyRules.Count; i++)
-            {
-                fuzzyEngine.Rules.Add(fuzzyRules[i]);
-            }
-        }
-
     }
 
     // Update is called once per frame
@@ -186,7 +187,6 @@ public class FuzzyAgentController : MonoBehaviour
         switch (State)
         {
             case FuzzyAgentState.IDLE:
-                UpdateIdleState();
                 break;
             case FuzzyAgentState.SHOOT_TARGET:
                 UpdateShootTargetState();
@@ -216,21 +216,11 @@ public class FuzzyAgentController : MonoBehaviour
 
         // Get the targets current health
         targetsCurrentHealth = target.GetComponent<FiniteAgentController>().CurrentHealth;
-    }
 
-    private void UpdateIdleState()
-    {
-
-        // If the targets health is not zero then do something
-        if (targetsCurrentHealth > 0)
+        // Check if the state should be changed and charge the rules depending on which state is active ( If the state is already at dead, no need to change)
+        if (State != FuzzyAgentState.DEAD)
         {
-            // State transitions
-            {
-                // Get the results from the fuzzy engine
-                //double result = fuzzyEngine.Defuzzify(new { distToTarget = (double)Vector3.Distance(transform.position, target.position), health = (double)currentHealth, targetsHealth = (double)targetsCurrentHealth});
-
-                //Debug.Log("Result: " + result);
-            }
+            CheckForStateChange();
         }
     }
 
@@ -250,7 +240,7 @@ public class FuzzyAgentController : MonoBehaviour
             int randomNum = Random.Range(1, 11);
             if (randomNum <= 5)
             {
-                target.GetComponent<FuzzyAgentController>().TakeDamage(10);
+                target.GetComponent<FiniteAgentController>().TakeDamage(10);
             }
         }
     }
@@ -314,7 +304,7 @@ public class FuzzyAgentController : MonoBehaviour
         RaycastHit hit;
         if (Physics.Raycast(transform.position, target.position - transform.position, out hit))
         {
-            if (hit.transform.CompareTag("FuzzyAgent"))
+            if (hit.transform.CompareTag("FiniteAgent"))
             {
                 return true;
             }
@@ -346,6 +336,123 @@ public class FuzzyAgentController : MonoBehaviour
         else
         {
             return false;
+        }
+    }
+
+    private void CheckForStateChange()
+    {
+        // Check if the rules have been set or not for the current state
+        if (!stateRulesSet)
+        {
+            stateRulesSet = true;
+
+            // Clear the rules on the fuzzy engine before adding new ones
+            fuzzyEngine.Rules.Clear();
+            fuzzyRules.Clear();
+
+            // Depending on which state the agent is currently in, apply different rules
+            switch (State)
+            {
+                case FuzzyAgentState.IDLE:
+                    {
+                        Debug.Log("Idle rules set!");
+                        // If the target is within shooting range and can see the target, go to the shooting state
+                        fuzzyRules.Add(Rule.If(distToTarget.IsNot(distToTargetMF.far).And(canSeeTarget.Is(canSeeTargetMF.can))).Then(actionToTake.Is(actionToTakeMF.shootTarget)));
+
+                        // If can't see the target or too far away from the target, go to the move state
+                        fuzzyRules.Add(Rule.If(distToTarget.Is(distToTargetMF.far).Or(canSeeTarget.Is(canSeeTargetMF.cant))).Then(actionToTake.Is(actionToTakeMF.moveCloserToTarget)));
+
+                        // If current health is low and the target isn't close, go to the hiding state
+                        fuzzyRules.Add(Rule.If(health.Is(healthMF.low).And(distToTarget.IsNot(distToTargetMF.close))).Then(actionToTake.Is(actionToTakeMF.hideFromTarget)));
+                    }
+                    break;
+                case FuzzyAgentState.SHOOT_TARGET:
+                    {
+                        Debug.Log("Shooting rules set!");
+                        // If target is too far away or can't see target, go to the move to target state
+                        fuzzyRules.Add(Rule.If(distToTarget.Is(distToTargetMF.far).Or(canSeeTarget.Is(canSeeTargetMF.cant))).Then(actionToTake.Is(actionToTakeMF.moveCloserToTarget)));
+
+                        // If current health is low and target isn't close, go to the hiding state
+                        fuzzyRules.Add(Rule.If(health.Is(healthMF.low).And(distToTarget.IsNot(distToTargetMF.close))).Then(actionToTake.Is(actionToTakeMF.hideFromTarget)));
+                    }
+                    break;
+                case FuzzyAgentState.HIDE:
+                    {
+                        Debug.Log("Hiding rules set!");
+                        // If target's health is low and target is not close, go to the move to target state
+                        fuzzyRules.Add(Rule.If(targetsHealth.Is(targetsHealthMF.low).And(distToTarget.IsNot(distToTargetMF.close))).Then(actionToTake.Is(actionToTakeMF.moveCloserToTarget)));
+
+                        // If target is close and can see target go to the shooting state
+                        fuzzyRules.Add(Rule.If(distToTarget.Is(distToTargetMF.close).And(canSeeTarget.Is(canSeeTargetMF.can))).Then(actionToTake.Is(actionToTakeMF.shootTarget)));
+                    }
+                    break;
+                case FuzzyAgentState.MOVE_TO_TARGET:
+                    {
+                        Debug.Log("Moving rules set!");
+                        // If the target is within shooting distance and can see the target, go to the shooting state
+                        fuzzyRules.Add(Rule.If(distToTarget.IsNot(distToTargetMF.far).And(canSeeTarget.Is(canSeeTargetMF.can))).Then(actionToTake.Is(actionToTakeMF.shootTarget)));
+
+                        // If current health is low and target isn't close, go to hiding state
+                        fuzzyRules.Add(Rule.If(health.Is(healthMF.low).And(distToTarget.IsNot(distToTargetMF.close))).Then(actionToTake.Is(actionToTakeMF.hideFromTarget)));
+                    }
+                    break;
+                default:
+                    break;
+            }
+
+            // Add the rules to the engine
+            for (int i = 0; i < fuzzyRules.Count; i++)
+            {
+                fuzzyEngine.Rules.Add(fuzzyRules[i]);
+            }
+
+            // Set the destination to be where the agent already is to avoid the agent running off while in a state where they should not move
+            agent.SetDestination(transform.position);
+        }
+
+        // Get the results from the fuzzy engine
+        float canSeeTargetValue = 0f;
+        if (CanSeeTarget())
+            canSeeTargetValue = .5f;
+        else
+            canSeeTargetValue = 1.5f;
+
+        double result = fuzzyEngine.Defuzzify(new { distToTarget = (double)Vector3.Distance(transform.position, target.position), health = (double)currentHealth, targetsHealth = (double)targetsCurrentHealth, canSeeTarget = (double)canSeeTargetValue });
+
+        Debug.Log("Result: " + result);
+        Debug.Log("No Of Rules: " + fuzzyEngine.Rules.Count);
+        Debug.Log("Can see target: " + canSeeTargetValue);
+
+        // Check what the result was and if it is valid
+        if (result > 0)
+        {
+            if (result > 0 && result <= 1)
+            {
+                State = FuzzyAgentState.SHOOT_TARGET;
+                stateRulesSet = false;
+            }
+            else if (result > 1 && result <= 2)
+            {
+                State = FuzzyAgentState.HIDE;
+                stateRulesSet = false;
+            }
+            else if (result > 2 && result <= 3)
+            {
+                State = FuzzyAgentState.MOVE_TO_TARGET;
+                stateRulesSet = false;
+            }
+        }
+
+        // Crisp state changes
+        if (targetsCurrentHealth <= 0)
+        {
+            State = FuzzyAgentState.IDLE;
+            stateRulesSet = false;
+        }
+        if (currentHealth <= 0)
+        {
+            State = FuzzyAgentState.DEAD;
+            stateRulesSet = false;
         }
     }
 }
