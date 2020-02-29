@@ -13,6 +13,7 @@ public class FuzzyAgentController : MonoBehaviour
     [SerializeField] Transform target = null;
     [SerializeField] private HealthBar healthBar = null;
     [SerializeField] private Transform healthBarPos = null;
+    [SerializeField] private GameObject reloadingText = null;
     [SerializeField] private Transform hidingSpotsTransform = null;
     [SerializeField] private ParticleSystem muzzleFlashParticle = null;
     [SerializeField] private float reloadTime = 2f;
@@ -250,6 +251,12 @@ public class FuzzyAgentController : MonoBehaviour
         if (Vector3.Dot(transform.position - mainCamera.transform.position, mainCamera.transform.forward) >= 0)
         {
             healthBar.transform.position = mainCamera.WorldToScreenPoint(healthBarPos.position);
+            reloadingText.transform.position = healthBar.transform.position + new Vector3(0, 30, 0);
+
+            if (State == FuzzyAgentState.RELOAD)
+                reloadingText.SetActive(true);
+            else
+                reloadingText.SetActive(false);
         }
 
         // Get the targets current health
@@ -409,7 +416,7 @@ public class FuzzyAgentController : MonoBehaviour
             fuzzyEngine.Rules.Clear();
             fuzzyRules.Clear();
 
-            // Depending on which state the agent is currently in, apply different rules
+            #region Depending on which state the agent is currently in, apply different rules
             switch (State)
             {
                 case FuzzyAgentState.IDLE:
@@ -477,9 +484,10 @@ public class FuzzyAgentController : MonoBehaviour
                 default:
                     break;
             }
+			#endregion
 
-            // Add the rules to the engine
-            for (int i = 0; i < fuzzyRules.Count; i++)
+			// Add the rules to the engine
+			for (int i = 0; i < fuzzyRules.Count; i++)
             {
                 fuzzyEngine.Rules.Add(fuzzyRules[i]);
             }
@@ -503,8 +511,8 @@ public class FuzzyAgentController : MonoBehaviour
 
         double result = fuzzyEngine.Defuzzify(new 
         { 
-            distToTarget = (double)Vector3.Distance(transform.position,
-            target.position), health = (double)currentHealth,
+            distToTarget = (double)Vector3.Distance(transform.position,target.position),
+            health = (double)currentHealth,
             targetsHealth = (double)targetsCurrentHealth,
             ammo = (double)ammoLeftInClip,
             canSeeTarget = (double)canSeeTargetValue,
@@ -516,24 +524,27 @@ public class FuzzyAgentController : MonoBehaviour
         Debug.Log("Can see target: " + canSeeTargetValue);
 
         // Check what the result was and if it is valid
-        if (result > 0)
+        if (result >= 0 && result < 1)
         {
-            if (result > 0 && result <= 1)
-            {
-                State = FuzzyAgentState.SHOOT_TARGET;
-                stateRulesSet = false;
-            }
-            else if (result > 1 && result <= 2)
-            {
-                State = FuzzyAgentState.HIDE;
-                stateRulesSet = false;
-            }
-            else if (result > 2 && result <= 3)
-            {
-                State = FuzzyAgentState.MOVE_TO_TARGET;
-                stateRulesSet = false;
-            }
+            State = FuzzyAgentState.SHOOT_TARGET;
+            stateRulesSet = false;
         }
+        else if (result >= 1 && result < 2)
+        {
+            State = FuzzyAgentState.HIDE;
+            stateRulesSet = false;
+        }
+        else if (result >= 2 && result < 3)
+        {
+            State = FuzzyAgentState.MOVE_TO_TARGET;
+            stateRulesSet = false;
+        }
+        else if (result >= 3 && result < 4)
+        {
+            State = FuzzyAgentState.RELOAD;
+            stateRulesSet = false;
+        }
+        
 
         // Crisp state changes
         if (targetsCurrentHealth <= 0)

@@ -9,6 +9,7 @@ public class FiniteAgentController : MonoBehaviour
     [SerializeField] private Transform target = null;
     [SerializeField] private HealthBar healthBar = null;
     [SerializeField] private Transform healthBarPos = null;
+    [SerializeField] private GameObject reloadingText = null;
     [SerializeField] private ParticleSystem muzzleFlashParticle = null;
     [SerializeField] private Transform hidingSpotsTransform = null;
     [SerializeField] private int maxHealth = 100;
@@ -161,6 +162,12 @@ public class FiniteAgentController : MonoBehaviour
         if (Vector3.Dot(transform.position - mainCamera.transform.position, mainCamera.transform.forward) >= 0)
         {
             healthBar.transform.position = mainCamera.WorldToScreenPoint(healthBarPos.position);
+            reloadingText.transform.position = healthBar.transform.position + new Vector3(0, 30, 0);
+
+            if (State == FiniteAgentState.RELOAD)
+                reloadingText.SetActive(true);
+            else
+                reloadingText.SetActive(false);
         }
     }
 
