@@ -13,6 +13,7 @@ public class FiniteAgentController : MonoBehaviour
     [SerializeField] private GameObject stateTextObject = null;
     [SerializeField] private ParticleSystem muzzleFlashParticle = null;
     [SerializeField] private Transform hidingSpotsTransform = null;
+    [SerializeField] private Transform spawnPos = null;
     [SerializeField] private LayerMask viewMask = 0;
     [SerializeField] private int maxHealth = 100;
     [SerializeField] private float distToStartShooting = 0f;
@@ -159,12 +160,6 @@ public class FiniteAgentController : MonoBehaviour
                 Debug.Log("No state has been set!");
                 stateText.text = "ERROR";
                 break;
-        }
-
-        // If current health is less than or equal to zero, go to the dead state
-        if (currentHealth <= 0)
-        {
-            State = FiniteAgentState.DEAD;
         }
 
         // If the target's health is less than or equal to zero then the target is dead, go to the idle state
@@ -406,13 +401,12 @@ public class FiniteAgentController : MonoBehaviour
         // Take the amount off of the current health
         currentHealth -= amount;
 
-        // If the current health is equal to or lower than 0 then the agent is dead
-        if (currentHealth <= 0)
+        // If current health is less than or equal to zero, go to the dead state
+        if (currentHealth <= 0 && State != FiniteAgentState.DEAD)
         {
             currentHealth = 0;
-
-            // The agent is dead, change states
             State = FiniteAgentState.DEAD;
+            GameManager.instance.AddPoint(GameManager.Agent.FUSM);
         }
 
         // Update the health bar
@@ -443,6 +437,24 @@ public class FiniteAgentController : MonoBehaviour
         {
             return false;
         }
+    }
+
+    public void Reset()
+    {
+        // Set the spawn position
+        transform.position = spawnPos.position;
+
+        // Set the state
+        State = FiniteAgentState.IDLE;
+
+        // Set the current halth to be the max at the start of the round
+        currentHealth = maxHealth;
+
+        // Set the agent to have full ammo at the start of the round
+        ammoLeftInClip = ammoPerClip;
+
+        // Setup the health bar
+        healthBar.SetMaxHealth(maxHealth);
     }
 
 }

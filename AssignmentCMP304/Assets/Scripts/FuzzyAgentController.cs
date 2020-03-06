@@ -21,6 +21,7 @@ public class FuzzyAgentController : MonoBehaviour
     [SerializeField] private float reloadTime = 2f;
     [SerializeField] private int ammoPerClip = 10;
     [SerializeField] private int bulletDamage = 8;
+    [SerializeField] private Transform spawnPos = null;
 
     #region Linguistic variables
     private LinguisticVariable distToTarget = new LinguisticVariable("distToTarget");
@@ -128,6 +129,11 @@ public class FuzzyAgentController : MonoBehaviour
     private int currentHealth = 0;
     private int targetsCurrentHealth = 0;
     private List<FuzzyRule> fuzzyRules = new List<FuzzyRule>();
+    private List<FuzzyRule> idleRules = new List<FuzzyRule>();
+    private List<FuzzyRule> shootingRules = new List<FuzzyRule>();
+    private List<FuzzyRule> hidingRules = new List<FuzzyRule>();
+    private List<FuzzyRule> moveToTargetRules = new List<FuzzyRule>();
+    private List<FuzzyRule> reloadRules = new List<FuzzyRule>();
     private float elapsedMuzzleFlashTime = 0f;
     private bool stateRulesSet = false;
     private float elapsedReloadTime = 0f;
@@ -236,8 +242,78 @@ public class FuzzyAgentController : MonoBehaviour
             actionToTakeMF.moveCloserToTarget = actionToTake.MembershipFunctions.AddTriangle("moveCloserToTarget", 2, 2.5f, 3);
             actionToTakeMF.reload = actionToTake.MembershipFunctions.AddTriangle("reload", 3, 3.5f, 4);
         }
-		#endregion
-	}
+        #endregion
+
+        #region Setup rules for each state
+
+        // Idle rules
+        {
+            // If the target is within shooting range and can see the target, go to the shooting state
+            idleRules.Add(Rule.If(distToTarget.IsNot(distToTargetMF.far).And(canSeeTarget.Is(canSeeTargetMF.can))).Then(actionToTake.Is(actionToTakeMF.shootTarget)));
+
+            // If can't see the target or too far away from the target, go to the move state
+            idleRules.Add(Rule.If(distToTarget.Is(distToTargetMF.far).Or(canSeeTarget.Is(canSeeTargetMF.cant))).Then(actionToTake.Is(actionToTakeMF.moveCloserToTarget)));
+
+            // If current health is low and the target isn't close, go to the hiding state
+            idleRules.Add(Rule.If(health.Is(healthMF.low).And(distToTarget.IsNot(distToTargetMF.close))).Then(actionToTake.Is(actionToTakeMF.hideFromTarget)));
+        }
+
+        // Shooting rules
+        {
+            // If target is too far away or can't see target, go to the move to target state
+            shootingRules.Add(Rule.If(distToTarget.Is(distToTargetMF.far).Or(canSeeTarget.Is(canSeeTargetMF.cant))).Then(actionToTake.Is(actionToTakeMF.moveCloserToTarget)));
+
+            // If current health is low and target isn't close, go to the hiding state
+            shootingRules.Add(Rule.If(health.Is(healthMF.low).And(distToTarget.IsNot(distToTargetMF.close))).Then(actionToTake.Is(actionToTakeMF.hideFromTarget)));
+
+            // If ammo is low and can see target, go to the hiding state
+            shootingRules.Add(Rule.If(ammo.Is(ammoMF.low).And(canSeeTarget.Is(canSeeTargetMF.can))).Then(actionToTake.Is(actionToTakeMF.hideFromTarget)));
+
+            // If ammo is low and can't see target, go to reload state
+            shootingRules.Add(Rule.If(ammo.Is(ammoMF.low).And(canSeeTarget.Is(canSeeTargetMF.cant))).Then(actionToTake.Is(actionToTakeMF.reload)));
+
+            // If ammo is low and dist to target is far, go to reload state
+            shootingRules.Add(Rule.If(ammo.Is(ammoMF.low).And(distToTarget.Is(distToTargetMF.far))).Then(actionToTake.Is(actionToTakeMF.reload)));
+        }
+
+        // Hiding rules
+        {
+            // If target's health is low and target is not close and emmo is not low, go to the move to target state
+            hidingRules.Add(Rule.If(targetsHealth.Is(targetsHealthMF.low).And(distToTarget.IsNot(distToTargetMF.close)).And(ammo.IsNot(ammoMF.low))).Then(actionToTake.Is(actionToTakeMF.moveCloserToTarget)));
+
+            // If target is close and can see target and ammo is not low, go to the shooting state
+            hidingRules.Add(Rule.If(distToTarget.Is(distToTargetMF.close).And(canSeeTarget.Is(canSeeTargetMF.can)).And(ammo.IsNot(ammoMF.low))).Then(actionToTake.Is(actionToTakeMF.shootTarget)));
+
+            // If ammo is low or empty and can't see target, go to reload state
+            hidingRules.Add(Rule.If(ammo.Is(ammoMF.low).And(canSeeTarget.Is(canSeeTargetMF.cant)).And(isAtHidingSpot.Is(isAtHidingSpotMF.there))).Then(actionToTake.Is(actionToTakeMF.reload)));
+        }
+
+        // Move to target rules
+        {
+            // If the target is within shooting distance and can see the target, go to the shooting state
+            moveToTargetRules.Add(Rule.If(distToTarget.IsNot(distToTargetMF.far).And(canSeeTarget.Is(canSeeTargetMF.can))).Then(actionToTake.Is(actionToTakeMF.shootTarget)));
+
+            // If current health is low and target isn't close and targets health is not low, go to hiding state
+            moveToTargetRules.Add(Rule.If(health.Is(healthMF.low).And(distToTarget.IsNot(distToTargetMF.close)).And(targetsHealth.IsNot(targetsHealthMF.low))).Then(actionToTake.Is(actionToTakeMF.hideFromTarget)));
+        }
+
+        // Reloading Rules
+        {
+            // If finished reloading and dist to target is far then go to the move to target state
+            reloadRules.Add(Rule.If(isFinishedReloading.Is(isFinishedReloadingMF.finished).And(distToTarget.Is(distToTargetMF.far))).Then(actionToTake.Is(actionToTakeMF.moveCloserToTarget)));
+
+            // If finished reloading and can't see target then go to the move to target state
+            reloadRules.Add(Rule.If(isFinishedReloading.Is(isFinishedReloadingMF.finished).And(canSeeTarget.Is(canSeeTargetMF.cant))).Then(actionToTake.Is(actionToTakeMF.moveCloserToTarget)));
+
+            // If finished reloading and distance to target isn't far and can see target, go to the shooting state
+            reloadRules.Add(Rule.If(isFinishedReloading.Is(isFinishedReloadingMF.finished).And(distToTarget.IsNot(distToTargetMF.far)).And(canSeeTarget.Is(canSeeTargetMF.can))).Then(actionToTake.Is(actionToTakeMF.shootTarget)));
+
+            // If can see target and not finished reloading, go to the hiding state
+            reloadRules.Add(Rule.If(canSeeTarget.Is(canSeeTargetMF.can).And(isFinishedReloading.Is(isFinishedReloadingMF.notFinished))).Then(actionToTake.Is(actionToTakeMF.hideFromTarget)));
+        }
+
+        #endregion
+    }
 
 	// Update is called once per frame
 	private void Update()
@@ -383,12 +459,13 @@ public class FuzzyAgentController : MonoBehaviour
         currentHealth -= amount;
 
         // If the current health is equal to or lower than 0 then the agent is dead
-        if (currentHealth <= 0)
+        if (currentHealth <= 0 && State != FuzzyAgentState.DEAD)
         {
             currentHealth = 0;
-
-            // The agent is dead, change states
             State = FuzzyAgentState.DEAD;
+            stateRulesSet = false;
+            GameManager.instance.AddPoint(GameManager.Agent.FSM);
+            agent.SetDestination(transform.position);
         }
 
         // Update the health bar
@@ -437,85 +514,38 @@ public class FuzzyAgentController : MonoBehaviour
             {
                 case FuzzyAgentState.IDLE:
                     {
-                        //Debug.Log("Idle rules set!");
-                        // If the target is within shooting range and can see the target, go to the shooting state
-                        fuzzyRules.Add(Rule.If(distToTarget.IsNot(distToTargetMF.far).And(canSeeTarget.Is(canSeeTargetMF.can))).Then(actionToTake.Is(actionToTakeMF.shootTarget)));
-
-                        // If can't see the target or too far away from the target, go to the move state
-                        fuzzyRules.Add(Rule.If(distToTarget.Is(distToTargetMF.far).Or(canSeeTarget.Is(canSeeTargetMF.cant))).Then(actionToTake.Is(actionToTakeMF.moveCloserToTarget)));
-
-                        // If current health is low and the target isn't close, go to the hiding state
-                        fuzzyRules.Add(Rule.If(health.Is(healthMF.low).And(distToTarget.IsNot(distToTargetMF.close))).Then(actionToTake.Is(actionToTakeMF.hideFromTarget)));
+                        //Debug.Log("Idle rules set");
+                        ChangeRules(idleRules);
                     }
                     break;
                 case FuzzyAgentState.SHOOT_TARGET:
                     {
-                        Debug.Log("Shooting rules set!");
-                        // If target is too far away or can't see target, go to the move to target state
-                        fuzzyRules.Add(Rule.If(distToTarget.Is(distToTargetMF.far).Or(canSeeTarget.Is(canSeeTargetMF.cant))).Then(actionToTake.Is(actionToTakeMF.moveCloserToTarget)));
-
-                        // If current health is low and target isn't close, go to the hiding state
-                        fuzzyRules.Add(Rule.If(health.Is(healthMF.low).And(distToTarget.IsNot(distToTargetMF.close))).Then(actionToTake.Is(actionToTakeMF.hideFromTarget)));
-
-                        // If ammo is low and can see target, go to the hiding state
-                        fuzzyRules.Add(Rule.If(ammo.Is(ammoMF.low).And(canSeeTarget.Is(canSeeTargetMF.can))).Then(actionToTake.Is(actionToTakeMF.hideFromTarget)));
-
-                        // If ammo is low and can't see target, go to reload state
-                        fuzzyRules.Add(Rule.If(ammo.Is(ammoMF.low).And(canSeeTarget.Is(canSeeTargetMF.cant))).Then(actionToTake.Is(actionToTakeMF.reload)));
-
-                        // If ammo is low and dist to target is far, go to reload state
-                        fuzzyRules.Add(Rule.If(ammo.Is(ammoMF.low).And(distToTarget.Is(distToTargetMF.far))).Then(actionToTake.Is(actionToTakeMF.reload)));
+                        //Debug.Log("Shooting rules set!");
+                        ChangeRules(shootingRules);
                     }
                     break;
                 case FuzzyAgentState.HIDE:
                     {
                         //Debug.Log("Hiding rules set!");
-                        // If target's health is low and target is not close and emmo is not low, go to the move to target state
-                        fuzzyRules.Add(Rule.If(targetsHealth.Is(targetsHealthMF.low).And(distToTarget.IsNot(distToTargetMF.close)).And(ammo.IsNot(ammoMF.low))).Then(actionToTake.Is(actionToTakeMF.moveCloserToTarget)));
-
-                        // If target is close and can see target and ammo is not low, go to the shooting state
-                        fuzzyRules.Add(Rule.If(distToTarget.Is(distToTargetMF.close).And(canSeeTarget.Is(canSeeTargetMF.can)).And(ammo.IsNot(ammoMF.low))).Then(actionToTake.Is(actionToTakeMF.shootTarget)));
-
-                        // If ammo is low or empty and can't see target, go to reload state
-                        fuzzyRules.Add(Rule.If(ammo.Is(ammoMF.low).And(canSeeTarget.Is(canSeeTargetMF.cant)).And(isAtHidingSpot.Is(isAtHidingSpotMF.there))).Then(actionToTake.Is(actionToTakeMF.reload)));
+                        ChangeRules(hidingRules);
                     }
                     break;
                 case FuzzyAgentState.MOVE_TO_TARGET:
                     {
                         //Debug.Log("Moving rules set!");
-                        // If the target is within shooting distance and can see the target, go to the shooting state
-                        fuzzyRules.Add(Rule.If(distToTarget.IsNot(distToTargetMF.far).And(canSeeTarget.Is(canSeeTargetMF.can))).Then(actionToTake.Is(actionToTakeMF.shootTarget)));
-
-                        // If current health is low and target isn't close and targets health is not low, go to hiding state
-                        fuzzyRules.Add(Rule.If(health.Is(healthMF.low).And(distToTarget.IsNot(distToTargetMF.close)).And(targetsHealth.IsNot(targetsHealthMF.low))).Then(actionToTake.Is(actionToTakeMF.hideFromTarget)));
+                        ChangeRules(moveToTargetRules);
                     }
                     break;
                 case FuzzyAgentState.RELOAD:
                     {
                         //Debug.Log("Reload rules set!");
-                        // If finished reloading and dist to target is far then go to the move to target state
-                        fuzzyRules.Add(Rule.If(isFinishedReloading.Is(isFinishedReloadingMF.finished).And(distToTarget.Is(distToTargetMF.far))).Then(actionToTake.Is(actionToTakeMF.moveCloserToTarget)));
-
-                        // If finished reloading and can't see target then go to the move to target state
-                        fuzzyRules.Add(Rule.If(isFinishedReloading.Is(isFinishedReloadingMF.finished).And(canSeeTarget.Is(canSeeTargetMF.cant))).Then(actionToTake.Is(actionToTakeMF.moveCloserToTarget)));
-
-                        // If finished reloading and distance to target isn't far and can see target, go to the shooting state
-                        fuzzyRules.Add(Rule.If(isFinishedReloading.Is(isFinishedReloadingMF.finished).And(distToTarget.IsNot(distToTargetMF.far)).And(canSeeTarget.Is(canSeeTargetMF.can))).Then(actionToTake.Is(actionToTakeMF.shootTarget)));
-
-                        // If can see target and not finished reloading, go to the hiding state
-                        fuzzyRules.Add(Rule.If(canSeeTarget.Is(canSeeTargetMF.can).And(isFinishedReloading.Is(isFinishedReloadingMF.notFinished))).Then(actionToTake.Is(actionToTakeMF.hideFromTarget)));
+                        ChangeRules(reloadRules);
                     }
                     break;
                 default:
                     break;
             }
 			#endregion
-
-			// Add the rules to the engine
-			for (int i = 0; i < fuzzyRules.Count; i++)
-            {
-                fuzzyEngine.Rules.Add(fuzzyRules[i]);
-            }
 
             // Set the destination to be where the agent already is to avoid the agent running off while in a state where they should not move
             agent.SetDestination(transform.position);
@@ -552,10 +582,6 @@ public class FuzzyAgentController : MonoBehaviour
             isAtHidingSpot = (double)isAtHidingSpotValue
         });
 
-        //Debug.Log("Result: " + result);
-        //Debug.Log("No Of Rules: " + fuzzyEngine.Rules.Count);
-        //Debug.Log("Can see target: " + canSeeTargetValue);
-
         // Check what the result was and if it is valid
         if (result > 0 && result <= 1)
         {
@@ -586,10 +612,31 @@ public class FuzzyAgentController : MonoBehaviour
             State = FuzzyAgentState.IDLE;
             stateRulesSet = false;
         }
-        if (currentHealth <= 0)
+    }
+
+    private void ChangeRules(List<FuzzyRule> rules)
+    {
+        for (int i = 0; i < rules.Count; i++)
         {
-            State = FuzzyAgentState.DEAD;
-            stateRulesSet = false;
+            fuzzyEngine.Rules.Add(rules[i]);
         }
+    }
+
+    public void Reset()
+    {
+        // Set the spawn position
+        transform.position = spawnPos.position;
+
+        // Set the state
+        State = FuzzyAgentState.IDLE;
+
+        // Set the current halth to be the max at the start of the round
+        currentHealth = maxHealth;
+
+        // Set the agent to have full ammo at the start of the round
+        ammoLeftInClip = ammoPerClip;
+
+        // Setup the health bar
+        healthBar.SetMaxHealth(maxHealth);
     }
 }
