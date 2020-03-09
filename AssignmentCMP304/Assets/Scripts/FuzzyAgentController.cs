@@ -124,18 +124,19 @@ public class FuzzyAgentController : MonoBehaviour
     // Public variables
     public FuzzyAgentState State { get; private set; } = FuzzyAgentState.IDLE;
     public int CurrentHealth { get { return currentHealth; } }
+    public int BulletsFired { get; private set; } = 0;
+    public int BulletsHit { get; private set; } = 0;
+    public int[] StateChanges { get; private set; } = new int[6] { 0, 0, 0, 0, 0, 0 };
 
     // Local variables
     private int currentHealth = 0;
-    private int targetsCurrentHealth = 0;
-    private List<FuzzyRule> fuzzyRules = new List<FuzzyRule>();
+    private int targetsCurrentHealth = 0; 
     private List<FuzzyRule> idleRules = new List<FuzzyRule>();
     private List<FuzzyRule> shootingRules = new List<FuzzyRule>();
     private List<FuzzyRule> hidingRules = new List<FuzzyRule>();
     private List<FuzzyRule> moveToTargetRules = new List<FuzzyRule>();
     private List<FuzzyRule> reloadRules = new List<FuzzyRule>();
     private float elapsedMuzzleFlashTime = 0f;
-    private bool stateRulesSet = false;
     private float elapsedReloadTime = 0f;
     private int ammoLeftInClip = 0;
     private bool finishedReloading = true;
@@ -197,22 +198,17 @@ public class FuzzyAgentController : MonoBehaviour
         // Setup the health bar
         healthBar.SetMaxHealth(maxHealth);
 
-		#region Setup the membership functions for the linguistic variables
-		{
-			if (distToTarget == null)
-            {
-                Debug.Log("distToTarget is null");
-            }
-
+        #region Setup the membership functions for the linguistic variables
+        {
             // Dist To Target
             distToTargetMF.close = distToTarget.MembershipFunctions.AddTrapezoid("close", 0, 0, 3, 7);
             distToTargetMF.moderate = distToTarget.MembershipFunctions.AddTrapezoid("moderate", 3, 7, 10, 16);
             distToTargetMF.far = distToTarget.MembershipFunctions.AddTrapezoid("far", 12, 16, 20, 20);
 
             // Health
-            healthMF.low = health.MembershipFunctions.AddTrapezoid("low", 0, 0, 20, 47);
-            healthMF.moderate = health.MembershipFunctions.AddTrapezoid("moderate", 20, 40, 60, 80);
-            healthMF.high = health.MembershipFunctions.AddTrapezoid("high", 53, 80, 100, 100);
+            healthMF.low = health.MembershipFunctions.AddTrapezoid("low", 0, 0, maxHealth * 0.2, maxHealth * 0.47);
+            healthMF.moderate = health.MembershipFunctions.AddTrapezoid("moderate", maxHealth * 0.2, maxHealth * 0.4, maxHealth * 0.6, maxHealth * 0.8);
+            healthMF.high = health.MembershipFunctions.AddTrapezoid("high", maxHealth * 0.53, maxHealth * 0.8, maxHealth, maxHealth);
 
             // Targets Health
             targetsHealthMF.low = targetsHealth.MembershipFunctions.AddTrapezoid("low", 0, 0, 20, 47);
@@ -278,13 +274,16 @@ public class FuzzyAgentController : MonoBehaviour
 
         // Hiding rules
         {
-            // If target's health is low and target is not close and emmo is not low, go to the move to target state
+            // If target's health is low and target is not close and ammo is not low, go to the move to target state
             hidingRules.Add(Rule.If(targetsHealth.Is(targetsHealthMF.low).And(distToTarget.IsNot(distToTargetMF.close)).And(ammo.IsNot(ammoMF.low))).Then(actionToTake.Is(actionToTakeMF.moveCloserToTarget)));
+
+            // If the agent's ammo isn't low and their health isn't low, go to the move to target state
+            hidingRules.Add(Rule.If((ammo.IsNot(ammoMF.low).And(health.IsNot(healthMF.low)))).Then(actionToTake.Is(actionToTakeMF.moveCloserToTarget)));
 
             // If target is close and can see target and ammo is not low, go to the shooting state
             hidingRules.Add(Rule.If(distToTarget.Is(distToTargetMF.close).And(canSeeTarget.Is(canSeeTargetMF.can)).And(ammo.IsNot(ammoMF.low))).Then(actionToTake.Is(actionToTakeMF.shootTarget)));
 
-            // If ammo is low or empty and can't see target, go to reload state
+            // If ammo is low and can't see target, go to reload state
             hidingRules.Add(Rule.If(ammo.Is(ammoMF.low).And(canSeeTarget.Is(canSeeTargetMF.cant)).And(isAtHidingSpot.Is(isAtHidingSpotMF.there))).Then(actionToTake.Is(actionToTakeMF.reload)));
         }
 
@@ -308,11 +307,14 @@ public class FuzzyAgentController : MonoBehaviour
             // If finished reloading and distance to target isn't far and can see target, go to the shooting state
             reloadRules.Add(Rule.If(isFinishedReloading.Is(isFinishedReloadingMF.finished).And(distToTarget.IsNot(distToTargetMF.far)).And(canSeeTarget.Is(canSeeTargetMF.can))).Then(actionToTake.Is(actionToTakeMF.shootTarget)));
 
-            // If can see target and not finished reloading, go to the hiding state
-            reloadRules.Add(Rule.If(canSeeTarget.Is(canSeeTargetMF.can).And(isFinishedReloading.Is(isFinishedReloadingMF.notFinished))).Then(actionToTake.Is(actionToTakeMF.hideFromTarget)));
+            // If can see target and not finished reloading and dist to target is not far, go to the hiding state
+            reloadRules.Add(Rule.If(canSeeTarget.Is(canSeeTargetMF.can).And(isFinishedReloading.Is(isFinishedReloadingMF.notFinished)).And(distToTarget.IsNot(distToTargetMF.far))).Then(actionToTake.Is(actionToTakeMF.hideFromTarget)));
         }
 
         #endregion
+
+        // Set the state
+        ChangeState(FuzzyAgentState.IDLE);
     }
 
 	// Update is called once per frame
@@ -322,31 +324,20 @@ public class FuzzyAgentController : MonoBehaviour
         switch (State)
         {
             case FuzzyAgentState.IDLE:
-                stateText.text = "IDLE";
-                agent.SetDestination(transform.position);
                 break;
             case FuzzyAgentState.SHOOT_TARGET:
                 UpdateShootTargetState();
-                stateText.text = "SHOOTING";
-                agent.SetDestination(transform.position);
                 break;
             case FuzzyAgentState.HIDE:
                 UpdateHideState();
-                stateText.text = "HIDING";
                 break;
             case FuzzyAgentState.MOVE_TO_TARGET:
                 UpdateMoveToTargetState();
-                stateText.text = "MOVING TO TARGET";
                 break;
             case FuzzyAgentState.RELOAD:
                 UpdateReloadState();
-                stateText.text = "RELOADING";
-                agent.SetDestination(transform.position);
                 break;
             case FuzzyAgentState.DEAD:
-                animator.SetTrigger("Dead");
-                stateText.text = "DEAD";
-                agent.SetDestination(transform.position);
                 break;
             default:
                 Debug.Log("No state has been set!");
@@ -384,14 +375,20 @@ public class FuzzyAgentController : MonoBehaviour
         if (elapsedMuzzleFlashTime <= Time.time && ammoLeftInClip > 0)
         {
             elapsedMuzzleFlashTime = Time.time + 0.2f;
+
+            // Play the muzzle flash particles
             muzzleFlashParticle.Play();
+
+            // Decrement the ammo left and increment the number of bullets fired
             ammoLeftInClip--;
+            BulletsFired++;
 
             // Generate a random number which will be the accuracy of the shot and damage the target if it hits
             int randomNum = Random.Range(1, 11);
             if (randomNum <= 5)
             {
                 target.GetComponent<FiniteAgentController>().TakeDamage(bulletDamage);
+                BulletsHit++;
             }
         }
     }
@@ -443,7 +440,6 @@ public class FuzzyAgentController : MonoBehaviour
         // Count done until done reloading
         if (elapsedReloadTime > 0)
         {
-            finishedReloading = false;
             elapsedReloadTime -= Time.deltaTime;
             if (elapsedReloadTime <= 0)
             {
@@ -462,10 +458,8 @@ public class FuzzyAgentController : MonoBehaviour
         if (currentHealth <= 0 && State != FuzzyAgentState.DEAD)
         {
             currentHealth = 0;
-            State = FuzzyAgentState.DEAD;
-            stateRulesSet = false;
+            ChangeState(FuzzyAgentState.DEAD);
             GameManager.instance.AddPoint(GameManager.Agent.FSM);
-            agent.SetDestination(transform.position);
         }
 
         // Update the health bar
@@ -474,6 +468,7 @@ public class FuzzyAgentController : MonoBehaviour
 
     private bool CanSeeTarget()
     {
+        // Draws a line from the agent to the target and returns true if nothing else was hit
         if (!Physics.Linecast(transform.position + new Vector3(0, 2, 0), target.position + new Vector3(0, 2, 0), viewMask))
         {
             Debug.DrawLine(transform.position + new Vector3(0, 2, 0), target.position + new Vector3(0, 2, 0));
@@ -487,6 +482,7 @@ public class FuzzyAgentController : MonoBehaviour
 
     private bool CanTargetSeePosition(Vector3 position)
     {
+        // Draws a line from the position to the target and returns true if nothing else was hit
         if (!Physics.Linecast(target.position + new Vector3(0, 2, 0), position, viewMask))
         {
             Debug.DrawLine(target.position + new Vector3(0, 2, 0), position);
@@ -500,77 +496,28 @@ public class FuzzyAgentController : MonoBehaviour
 
     private void CheckForStateChange()
     {
-        // Check if the rules have been set or not for the current state
-        if (!stateRulesSet)
-        {
-            stateRulesSet = true;
-
-            // Clear the rules on the fuzzy engine before adding new ones
-            fuzzyEngine.Rules.Clear();
-            fuzzyRules.Clear();
-
-            #region Depending on which state the agent is currently in, apply different rules
-            switch (State)
-            {
-                case FuzzyAgentState.IDLE:
-                    {
-                        //Debug.Log("Idle rules set");
-                        ChangeRules(idleRules);
-                    }
-                    break;
-                case FuzzyAgentState.SHOOT_TARGET:
-                    {
-                        //Debug.Log("Shooting rules set!");
-                        ChangeRules(shootingRules);
-                    }
-                    break;
-                case FuzzyAgentState.HIDE:
-                    {
-                        //Debug.Log("Hiding rules set!");
-                        ChangeRules(hidingRules);
-                    }
-                    break;
-                case FuzzyAgentState.MOVE_TO_TARGET:
-                    {
-                        //Debug.Log("Moving rules set!");
-                        ChangeRules(moveToTargetRules);
-                    }
-                    break;
-                case FuzzyAgentState.RELOAD:
-                    {
-                        //Debug.Log("Reload rules set!");
-                        ChangeRules(reloadRules);
-                    }
-                    break;
-                default:
-                    break;
-            }
-			#endregion
-
-            // Set the destination to be where the agent already is to avoid the agent running off while in a state where they should not move
-            agent.SetDestination(transform.position);
-            atHidingSpot = false;
-        }
-
-        // Get the results from the fuzzy engine
+        // Get the can see target value
         float canSeeTargetValue = 0f;
         if (CanSeeTarget())
             canSeeTargetValue = .5f;
         else
             canSeeTargetValue = 1.5f;
 
+        // Get the is finished reloading value
         float isFinishedReloadingValue = 0f;
         if (finishedReloading)
             isFinishedReloadingValue = .5f;
         else
             isFinishedReloadingValue = 1.5f;
 
+        // Get the is at hiding spot value
         float isAtHidingSpotValue = 0f;
         if (atHidingSpot)
             isAtHidingSpotValue = .5f;
         else
             isAtHidingSpotValue = 1.5f;
 
+        // Calculate the results
         double result = fuzzyEngine.Defuzzify(new 
         { 
             distToTarget = (double)Vector3.Distance(transform.position,target.position),
@@ -585,32 +532,84 @@ public class FuzzyAgentController : MonoBehaviour
         // Check what the result was and if it is valid
         if (result > 0 && result <= 1)
         {
-            State = FuzzyAgentState.SHOOT_TARGET;
-            stateRulesSet = false;
+            ChangeState(FuzzyAgentState.SHOOT_TARGET);
         }
         else if (result > 1 && result <= 2)
         {
-            State = FuzzyAgentState.HIDE;
-            stateRulesSet = false;
+            ChangeState(FuzzyAgentState.HIDE);
         }
         else if (result > 2 && result <= 3)
         {
-            State = FuzzyAgentState.MOVE_TO_TARGET;
-            stateRulesSet = false;
+            ChangeState(FuzzyAgentState.MOVE_TO_TARGET);
         }
         else if (result > 3 && result <= 4)
         {
-            State = FuzzyAgentState.RELOAD;
-            elapsedReloadTime = reloadTime;
-            stateRulesSet = false;
+            ChangeState(FuzzyAgentState.RELOAD);
         }
         
-
         // Crisp state changes
         if (targetsCurrentHealth <= 0)
         {
-            State = FuzzyAgentState.IDLE;
-            stateRulesSet = false;
+            ChangeState(FuzzyAgentState.IDLE);
+        }
+    }
+
+    private void ChangeState(FuzzyAgentState newState)
+    {
+        // Set the state to the new state and increment the new state
+        State = newState;
+        StateChanges[(int)newState]++;
+
+        // Set the destination to be where the agent already is to avoid the agent running off while in a state where they should not move
+        agent.SetDestination(transform.position);
+        elapsedReloadTime = reloadTime;
+        atHidingSpot = false;
+        finishedReloading = false;
+
+        // Clear the rules on the fuzzy engine before adding new ones
+        fuzzyEngine.Rules.Clear();
+
+        // Depending on which state the agent is currently in, apply different rules and set the state text
+        switch (newState)
+        {
+            case FuzzyAgentState.IDLE:
+                {
+                    stateText.text = "IDLE";
+                    ChangeRules(idleRules);
+                }
+                break;
+            case FuzzyAgentState.SHOOT_TARGET:
+                {
+                    stateText.text = "SHOOTING";
+                    ChangeRules(shootingRules);
+                }
+                break;
+            case FuzzyAgentState.HIDE:
+                {
+                    stateText.text = "HIDING";
+                    ChangeRules(hidingRules);
+                }
+                break;
+            case FuzzyAgentState.MOVE_TO_TARGET:
+                {
+                    stateText.text = "MOVING TO TARGET";
+                    ChangeRules(moveToTargetRules);
+                }
+                break;
+            case FuzzyAgentState.RELOAD:
+                {
+                    stateText.text = "RELOADING";
+                    ChangeRules(reloadRules);
+                }
+                break;
+            case FuzzyAgentState.DEAD:
+                {
+                    animator.SetTrigger("Dead");
+                    stateText.text = "DEAD";
+                }
+                break;
+            default:
+                break;
         }
     }
 
@@ -628,7 +627,7 @@ public class FuzzyAgentController : MonoBehaviour
         transform.position = spawnPos.position;
 
         // Set the state
-        State = FuzzyAgentState.IDLE;
+        ChangeState(FuzzyAgentState.IDLE);
 
         // Set the current halth to be the max at the start of the round
         currentHealth = maxHealth;
@@ -638,5 +637,15 @@ public class FuzzyAgentController : MonoBehaviour
 
         // Setup the health bar
         healthBar.SetMaxHealth(maxHealth);
+
+        // Reset the bullets fired ans bullets hit
+        BulletsFired = 0;
+        BulletsHit = 0;
+
+        // Reset the state changes
+        for (int i = 0; i < StateChanges.Length; i++)
+        {
+            StateChanges[i] = 0;
+        }
     }
 }

@@ -46,6 +46,9 @@ public class FiniteAgentController : MonoBehaviour
     // Public variables
     public FiniteAgentState State { get; private set; } = FiniteAgentState.IDLE;
     public int CurrentHealth { get { return currentHealth; } }
+    public int BulletsFired { get; private set; } = 0;
+    public int BulletsHit { get; private set; } = 0;
+    public int[] StateChanges { get; private set; } = new int[6] { 0, 0, 0, 0, 0, 0 };
 
     // Local variables
     private float distToTarget = 0f;
@@ -55,8 +58,7 @@ public class FiniteAgentController : MonoBehaviour
     private float elapsedReloadTime = 0f;
     private bool finishedReloading = true;
     private int ammoLeftInClip = 0;
-    private bool atHidingSpace = false;
-    private bool canSeeTarget = false;
+    private bool atHidingSpot = false;
 
     private void Awake()
     {
@@ -98,7 +100,7 @@ public class FiniteAgentController : MonoBehaviour
     // Start is called before the first frame update
     private void Start()
     {
-        // Set the current halth to be the max at the start of the game
+        // Set the current health to be the max at the start of the game
         currentHealth = maxHealth;
 
         // Set the agents ammo to full
@@ -111,14 +113,6 @@ public class FiniteAgentController : MonoBehaviour
     // Update is called once per frame
     private void Update()
     {
-        // TEST CODE
-        {
-            if (Input.GetKeyDown(KeyCode.G))
-            {
-                TakeDamage(10);
-            }
-        }
-
         // Caluculate the distance from the agent to the target
         distToTarget = Vector3.Distance(transform.position, target.position);
 
@@ -130,31 +124,20 @@ public class FiniteAgentController : MonoBehaviour
         {
             case FiniteAgentState.IDLE:
                 UpdateIdleState();
-                agent.SetDestination(transform.position);
-                stateText.text = "IDLE";
                 break;
             case FiniteAgentState.SHOOT_TARGET:
                 UpdateShootTargetState();
-                agent.SetDestination(transform.position);
-                stateText.text = "SHOOTING";
                 break;
             case FiniteAgentState.HIDE:
                 UpdateHideState();
-                stateText.text = "HIDING";
                 break;
             case FiniteAgentState.MOVE_TO_TARGET:
                 UpdateMoveToTargetState();
-                stateText.text = "MOVING TO TARGET";
                 break;
             case FiniteAgentState.RELOAD:
                 UpdateReloadState();
-                agent.SetDestination(transform.position);
-                stateText.text = "RELOADING";
                 break;
             case FiniteAgentState.DEAD:
-                animator.SetTrigger("Dead");
-                agent.SetDestination(transform.position);
-                stateText.text = "DEAD";
                 break;
             default:
                 Debug.Log("No state has been set!");
@@ -165,7 +148,7 @@ public class FiniteAgentController : MonoBehaviour
         // If the target's health is less than or equal to zero then the target is dead, go to the idle state
         if (targetsHealth <= 0)
         {
-            State = FiniteAgentState.IDLE;
+            ChangeState(FiniteAgentState.IDLE);
         }
 
         // Update the animator's speed variable to be the current velocity in the forward vector
@@ -177,8 +160,6 @@ public class FiniteAgentController : MonoBehaviour
             healthBar.transform.position = mainCamera.WorldToScreenPoint(healthBarPos.position);
             stateTextObject.transform.position = healthBar.transform.position + new Vector3(0, 30, 0);
         }
-
-        canSeeTarget = CanSeeTarget();
     }
 
     private void UpdateIdleState()
@@ -191,19 +172,19 @@ public class FiniteAgentController : MonoBehaviour
                 // If the agent can see the target and they are within shooting distance, go to the shooting state
                 if (CanSeeTarget() && distToTarget <= distToStartShooting && ammoLeftInClip > 0)
                 {
-                    State = FiniteAgentState.SHOOT_TARGET;
+                    ChangeState(FiniteAgentState.SHOOT_TARGET);
                 }
 
                 // If the agent can't see the target or they are too far away from the target, go the the move to target state
                 if (!CanSeeTarget() || distToTarget > distToStartShooting)
                 {
-                    State = FiniteAgentState.MOVE_TO_TARGET;
+                    ChangeState(FiniteAgentState.MOVE_TO_TARGET);
                 }
 
                 // If current health is low and the target isn't close, go to the hide state
                 if (currentHealth <= lowHealth && distToTarget >= distToHide)
                 {
-                    State = FiniteAgentState.HIDE;
+                    ChangeState(FiniteAgentState.HIDE);
                 }
             }
         }
@@ -215,18 +196,24 @@ public class FiniteAgentController : MonoBehaviour
         Vector3 dirToTarget = Vector3.Normalize(target.position - transform.position);
         transform.rotation = Quaternion.LookRotation(dirToTarget);
 
-        // Time between shots
+        // Shooting
         if (elapsedMuzzleFlashTime <= Time.time && ammoLeftInClip > 0)
         {
             elapsedMuzzleFlashTime = Time.time + 0.2f;
+
+            // Play the muzzle flash particles
             muzzleFlashParticle.Play();
+
+            // Decrement the ammo left and increment the number of bullets fired
             ammoLeftInClip--;
+            BulletsFired++;
 
             // Generate a random number which will be the accuracy of the shot and damage the target if it hits
             int randomNum = Random.Range(1, 11);
             if (randomNum <= 5)
             {
                 target.GetComponent<FuzzyAgentController>().TakeDamage(bulletDamage);
+                BulletsHit++;
             }
         }
 
@@ -238,26 +225,24 @@ public class FiniteAgentController : MonoBehaviour
                 // If ammo is low, go to the reload state
                 if (ammoLeftInClip <= lowAmmo)
                 {
-                    State = FiniteAgentState.RELOAD;
-                    elapsedReloadTime = reloadTime;
+                    ChangeState(FiniteAgentState.RELOAD);
                 }
                 else
                 {
-                    State = FiniteAgentState.MOVE_TO_TARGET;
+                    ChangeState(FiniteAgentState.MOVE_TO_TARGET);
                 }
             }
 
             // If current health is low and target isn't close and targets health is not low, go to hiding state
             if (currentHealth <= lowHealth && distToTarget >= distToHide && targetsHealth > lowHealth)
             {
-                State = FiniteAgentState.HIDE;
-                agent.SetDestination(transform.position);
+                ChangeState(FiniteAgentState.HIDE);
             }
 
             // If ammo empty, go to the hiding state
             if (ammoLeftInClip <= 0)
             {
-                State = FiniteAgentState.HIDE;
+                ChangeState(FiniteAgentState.HIDE);
             }
         }
     }
@@ -290,7 +275,7 @@ public class FiniteAgentController : MonoBehaviour
             // If the agent is close enough to the hiding spot then the agent is at the hiding spot
             if (Vector3.Distance(transform.position, closestAvailableHidingSpot.position) < 1f)
             {
-                atHidingSpace = true;
+                atHidingSpot = true;
             }
         }
         else
@@ -303,35 +288,18 @@ public class FiniteAgentController : MonoBehaviour
             // Check if the agent has ammo left
             if (ammoLeftInClip > 0)
             {
-                // If the target's health is low and target is not close, go to the move to target state
-                if (targetsHealth <= lowHealth)
+                if ((!CanSeeTarget() || distToTarget >= distToStartShooting) && targetsHealth <= lowHealth)
                 {
-                    if (!CanSeeTarget())
-                    {
-                        State = FiniteAgentState.MOVE_TO_TARGET;
-                        agent.SetDestination(transform.position);
-                        atHidingSpace = false;
-                    }
-                    else
-                    {
-                        State = FiniteAgentState.SHOOT_TARGET;
-                        agent.SetDestination(transform.position);
-                        atHidingSpace = false;
-                    }
+                    ChangeState(FiniteAgentState.MOVE_TO_TARGET);
                 }
-                else if (CanSeeTarget() && distToTarget <= distToStartShooting)
+                else if (distToTarget <= distToStartShooting)
                 {
-                    State = FiniteAgentState.SHOOT_TARGET;
-                    agent.SetDestination(transform.position);
-                    atHidingSpace = false;
+                    ChangeState(FiniteAgentState.SHOOT_TARGET);
                 }
             }
-            else if (atHidingSpace)
+            else if (atHidingSpot)
             {
-                State = FiniteAgentState.RELOAD;
-                agent.SetDestination(transform.position);
-                elapsedReloadTime = reloadTime;
-                atHidingSpace = false;   
+                ChangeState(FiniteAgentState.RELOAD);  
             }
         }
     }
@@ -346,15 +314,13 @@ public class FiniteAgentController : MonoBehaviour
             // If the target is within shooting distance, go to the shooting state
             if (distToTarget <= distToStartShooting && CanSeeTarget() && ammoLeftInClip > 0)
             {
-                State = FiniteAgentState.SHOOT_TARGET;
-                agent.SetDestination(transform.position);
+                ChangeState(FiniteAgentState.SHOOT_TARGET);
             }
 
             // If current health is low and target isn't close and targets health is not low, go to hiding state
             if (currentHealth <= lowHealth && distToTarget >= distToHide && targetsHealth > lowHealth)
             {
-                State = FiniteAgentState.HIDE;
-                agent.SetDestination(transform.position);
+                ChangeState(FiniteAgentState.HIDE);
             }
         }
     }
@@ -364,7 +330,6 @@ public class FiniteAgentController : MonoBehaviour
         // Count done until done reloading
         if (elapsedReloadTime > 0)
         {
-            finishedReloading = false;
             elapsedReloadTime -= Time.deltaTime;
             if (elapsedReloadTime <= 0)
             {
@@ -375,23 +340,22 @@ public class FiniteAgentController : MonoBehaviour
 
         // State transitions
         {
-            // Check if the agent has finished reloading
-            if (finishedReloading)
+            // Check if the agent can see the target and they are within shooting range else if they have finished reloading, go to the move to target state
+            if (CanSeeTarget() && distToTarget <= distToStartShooting)
             {
-                //Debug.Log("Finished Reloading!");
-                // If distance to target isn't far and can see target, go to the shooting state else move to the target
-                if (distToTarget <= distToStartShooting && CanSeeTarget())
+                // If they have finished reloading, go to the shooting state else go to the hiding state
+                if (finishedReloading)
                 {
-                    State = FiniteAgentState.SHOOT_TARGET;
+                    ChangeState(FiniteAgentState.SHOOT_TARGET);  
                 }
                 else
                 {
-                    State = FiniteAgentState.MOVE_TO_TARGET;
+                    ChangeState(FiniteAgentState.HIDE);
                 }
             }
-            else if (CanSeeTarget())
+            else if(finishedReloading)
             {
-                State = FiniteAgentState.HIDE;
+                ChangeState(FiniteAgentState.MOVE_TO_TARGET);
             }
         }
     }
@@ -405,7 +369,7 @@ public class FiniteAgentController : MonoBehaviour
         if (currentHealth <= 0 && State != FiniteAgentState.DEAD)
         {
             currentHealth = 0;
-            State = FiniteAgentState.DEAD;
+            ChangeState(FiniteAgentState.DEAD);
             GameManager.instance.AddPoint(GameManager.Agent.FUSM);
         }
 
@@ -415,6 +379,7 @@ public class FiniteAgentController : MonoBehaviour
 
     private bool CanSeeTarget()
     {
+        // Draws a line from the agent to the target and returns true if nothing else was hit
         if (!Physics.Linecast(transform.position + new Vector3(0, 2, 0), target.position + new Vector3(0, 2, 0), viewMask))
         {
             Debug.DrawLine(transform.position + new Vector3(0, 2, 0), target.position + new Vector3(0, 2, 0));
@@ -428,6 +393,7 @@ public class FiniteAgentController : MonoBehaviour
 
     private bool CanTargetSeePosition(Vector3 position)
     {
+        // Draws a line from the position to the target and returns true if nothing else was hit
         if (!Physics.Linecast(target.position + new Vector3(0, 2, 0), position, viewMask))
         {
             Debug.DrawLine(target.position + new Vector3(0, 2, 0), position);
@@ -439,13 +405,54 @@ public class FiniteAgentController : MonoBehaviour
         }
     }
 
+    private void ChangeState(FiniteAgentState newState)
+    {
+        // Set the state to the new state and update the number of state changes
+        State = newState;
+        StateChanges[(int)newState]++;
+
+        // Reset all values before going to the new state
+        agent.SetDestination(transform.position);
+        elapsedReloadTime = reloadTime;
+        atHidingSpot = false;
+        finishedReloading = false;
+
+        // Change the text the appears above the agents head depending on the state
+        switch (newState)
+        {
+            case FiniteAgentState.IDLE:
+                stateText.text = "IDLE";
+                break;
+            case FiniteAgentState.SHOOT_TARGET:
+                stateText.text = "SHOOTING";
+                break;
+            case FiniteAgentState.HIDE:
+                stateText.text = "HIDING";
+                break;
+            case FiniteAgentState.MOVE_TO_TARGET:
+                stateText.text = "MOVING TO TARGET";
+                break;
+            case FiniteAgentState.DEAD:
+                animator.SetTrigger("Dead");
+                stateText.text = "DEAD";
+                break;
+            case FiniteAgentState.RELOAD:
+                stateText.text = "RELOADING";
+                break;
+            case FiniteAgentState.NUM_STATES:
+                break;
+            default:
+                break;
+        }
+    }
+
     public void Reset()
     {
         // Set the spawn position
         transform.position = spawnPos.position;
 
         // Set the state
-        State = FiniteAgentState.IDLE;
+        ChangeState(FiniteAgentState.IDLE);
 
         // Set the current halth to be the max at the start of the round
         currentHealth = maxHealth;
@@ -455,6 +462,10 @@ public class FiniteAgentController : MonoBehaviour
 
         // Setup the health bar
         healthBar.SetMaxHealth(maxHealth);
+
+        // Reset the bullets fired ans bullets hit
+        BulletsFired = 0;
+        BulletsHit = 0;
     }
 
 }
