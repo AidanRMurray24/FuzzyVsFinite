@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.AI;
 using TMPro;
+using UnityEngine.Profiling;
 
 public class FiniteAgentController : MonoBehaviour
 {
@@ -113,6 +114,8 @@ public class FiniteAgentController : MonoBehaviour
     // Update is called once per frame
     private void Update()
     {
+        Profiler.BeginSample("Finite");
+
         // Caluculate the distance from the agent to the target
         distToTarget = Vector3.Distance(transform.position, target.position);
 
@@ -160,6 +163,8 @@ public class FiniteAgentController : MonoBehaviour
             healthBar.transform.position = mainCamera.WorldToScreenPoint(healthBarPos.position);
             stateTextObject.transform.position = healthBar.transform.position + new Vector3(0, 30, 0);
         }
+
+        Profiler.EndSample();
     }
 
     private void UpdateIdleState()
@@ -463,9 +468,18 @@ public class FiniteAgentController : MonoBehaviour
         // Setup the health bar
         healthBar.SetMaxHealth(maxHealth);
 
+        // Rest the animation
+        animator.ResetTrigger("Dead");
+
         // Reset the bullets fired ans bullets hit
         BulletsFired = 0;
         BulletsHit = 0;
+
+        // Reset the state changes
+        for (int i = 0; i < StateChanges.Length; i++)
+        {
+            StateChanges[i] = 0;
+        }
     }
 
 }

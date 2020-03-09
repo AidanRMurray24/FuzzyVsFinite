@@ -6,6 +6,7 @@ using FLS;
 using FLS.Rules;
 using FLS.MembershipFunctions;
 using TMPro;
+using UnityEngine.Profiling;
 
 public class FuzzyAgentController : MonoBehaviour
 {
@@ -320,6 +321,8 @@ public class FuzzyAgentController : MonoBehaviour
 	// Update is called once per frame
 	private void Update()
     {
+        Profiler.BeginSample("Fuzzy");
+
         // Change what gets updated depending on the current state
         switch (State)
         {
@@ -363,6 +366,8 @@ public class FuzzyAgentController : MonoBehaviour
         {
             CheckForStateChange();
         }
+
+        Profiler.EndSample();
     }
 
     private void UpdateShootTargetState()
@@ -637,6 +642,9 @@ public class FuzzyAgentController : MonoBehaviour
 
         // Setup the health bar
         healthBar.SetMaxHealth(maxHealth);
+
+        // Rest the animation
+        animator.ResetTrigger("Dead");
 
         // Reset the bullets fired ans bullets hit
         BulletsFired = 0;
